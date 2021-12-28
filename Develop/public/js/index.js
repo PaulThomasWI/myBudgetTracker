@@ -1,18 +1,76 @@
 let transactions = [];
 let myChart;
 
-fetch("/api/transaction")
-  .then(response => {
-    return response.json();
-  })
+let db;
+
+var request = indexedDB.open("Budget", 1);
+
+request.onerror = function(event) {
+  console.error("openDb", event.target.errorCode);
+};
+request.onsuccess = function(event) {
+  db = event.target.result;
+  console.log("openDb DONE");
+};
+
+request.onupgradeneeded = (event) => {
+  var store = event.currentTarget.result.createObjectStore("transaction", {keyPath: 'id',autoIncrement: true });
+}
+
+function saveRecord(transaction) {
+  let action = db.transaction("transaction", 'readwrite').objectStore("transaction");
+
+  let result = action.add(transaction);
+
+  result.onerror = function(){
+    console.log("err")
+  };
+  
+  result.onsuccess = function(){
+    console.log("success")
+  };
+}
+
+function offlineGetPost () {
+  let action = db.transaction("transaction", 'readwrite').objectStore("transaction");
+  let data   = action.getAll();
+  
+  data.onsuccess = function(){
+    console.log(data)
+    console.log("offline to online success")
+
+    fetch("api/transaction/bulk", {
+      method: "POST",
+      body: JSON.stringify(data.result),
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "Content-Type": "application/json"
+      }
+    })
+    .then(data => { return data.json() })
+    .then(data => {
+      fetchData();
+      let dataClear = db.transaction("transaction", 'readwrite').objectStore("transaction");
+      dataClear.clear();
+    })
+  };
+
+  data.onerror = function(){ console.log("err") };
+}
+
+function fetchData(){
+  fetch("/api/transaction")
+  .then(response => { return response.json(); })
   .then(data => {
-    // save db data on global variable
     transactions = data;
 
     populateTotal();
     populateTable();
     populateChart();
   });
+};
+
+fetchData();
 
 function populateTotal() {
   // reduce transaction amounts to a single total value
@@ -151,3 +209,8 @@ document.querySelector("#add-btn").onclick = function() {
 document.querySelector("#sub-btn").onclick = function() {
   sendTransaction(false);
 };
+
+window.addEventListener("online", () => {
+  console.log("online")
+  offlineGetPost();
+});
